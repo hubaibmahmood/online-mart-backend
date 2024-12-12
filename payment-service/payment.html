@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stripe Payment</title>
+    <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+    <form id="payment-form">
+        <div id="card-element">
+            <!-- Elements will create input elements here -->
+        </div>
+        <button id="submit">Pay</button>
+    </form>
+    <script>
+        // Your stripe publishable key
+        const stripe = Stripe('your_stripe_publishable_key');
+        const elements = stripe.elements();
+        const cardElement = elements.create('card');
+        cardElement.mount('#card-element');
+
+        // Extract client_secret and order_id from URL query parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const clientSecret = urlParams.get('client_secret');
+        const orderId = urlParams.get('order_id');
+
+        console.log(orderId)
+
+        const form = document.getElementById('payment-form');
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            // Confirm the payment using the clientSecret
+            const { paymentIntent, error } = await stripe.confirmCardPayment(clientSecret, {
+                payment_method: {
+                    card: cardElement,
+                    billing_details: {
+                        name: 'Customer Name',
+                    },
+                },
+            });
+
+            if (error) {
+                // Show error to your customer
+                console.error("Payment failed:", error);
+                alert("Payment failed");
+
+                // Send payment status update to backend
+                await updatePaymentStatus("failed");
+            } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+                // Show a success message to your customer
+                console.log('Payment successful');
+                alert('Payment successful');
+
+                // Send payment status update to backend
+                await updatePaymentStatus("completed");
+            }
+        });
+
+        // Function to update payment status on the backend
+        async function updatePaymentStatus(status) {
+            try {
+                const response = await fetch('http://localhost:8091/update-payment-status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        order_id: orderId,
+                        payment_status: status
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error("Failed to update payment status on backend");
+                }
+
+                console.log("Payment status updated successfully on backend:", status);
+            } catch (error) {
+                console.error("Error updating payment status:", error);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+name: microservice
+
+services:
+  user_management:
+    build:
+      context: ./user-management
+      dockerfile: Dockerfile
+    volumes:
+      - ./user-management:/code
+    ports:
+      - "8085:8085"
+    depends_on:
+        - postgres_db
+        - broker
+
+  products:
+    build:
+      context: ./product-management
+      dockerfile: Dockerfile
+    volumes:
+      - ./product-management:/code
+    ports:
+      - "8086:8086"
+    depends_on:
+        - postgres_db
+        - broker
+
+  orders:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./order-service:/code
+    ports:
+      - "8087:8087"
+    depends_on:
+        - postgres_db
+        - broker
+
+  inventory:
+    build:
+      context: ./inventory-management
+      dockerfile: Dockerfile
+    volumes:
+      - ./inventory-management:/code
+    ports:
+      - "8089:8089"
+    depends_on:
+        - postgres_db
+        - broker
+
+  notification:
+    build: 
+      context: ./notification-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./notification-service:/code
+    ports:
+      - "8090:8090"
+    depends_on:
+        - postgres_db
+        - broker
+
+
+  payment:
+    build: 
+      context: ./payment-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./payment-service:/code
+    ports:
+      - "8091:8091"
+    depends_on:
+        - postgres_db
+        - broker
+
+
+  postgres_db:
+    image: postgres:latest # Use the official PostgreSQL image
+    restart: always
+    container_name: PostgresCont
+    environment:
+      - POSTGRES_USER=hubaib_mehmood
+      - POSTGRES_PASSWORD=user_db_management
+      - POSTGRES_DB=user_db
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_db:/var/lib/postgresql/data
+
+  broker:
+    image: apache/kafka:3.7.0
+    hostname: broker
+    container_name: broker
+    ports:
+      - '9092:9092'
+      - '19092:19092'
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT_HOST://host.docker.internal:9092,PLAINTEXT://broker:19092'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker:29093'
+      KAFKA_LISTENERS: 'CONTROLLER://:29093,PLAINTEXT_HOST://:9092,PLAINTEXT://:19092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      CLUSTER_ID: '4L6g3nShT-eMCtK--X86sw'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: 'Local Kafka Cluster'
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 'broker:19092'
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      - broker
+
+
+
+  kong-database:
+    image: postgres:latest
+    container_name: kong-postgres
+    restart: on-failure
+    volumes:
+      - kong_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: ${KONG_PG_PASSWORD:-kong}
+      POSTGRES_DB: kong
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "kong"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
+
+  kong-migration:
+    image: ${KONG_DOCKER_TAG:-kong:latest}
+    command: kong migrations bootstrap
+    restart: on-failure
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: ${KONG_PG_PASSWORD:-kong}
+    depends_on:
+      - kong-database
+
+  kong:
+    image: ${KONG_DOCKER_TAG:-kong:latest}
+    restart: on-failure
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-database
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: ${KONG_PG_PASSWORD:-kong}
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_PROXY_LISTEN_SSL: 0.0.0.0:8443
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002
+    depends_on:
+      - kong-database
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
+      - "8443:8443"
+      - "8444:8444"
+
+
+
+
+volumes:
+  kong_data: {}
+  postgres_db:
+    driver: local
+    
+networks:
+  default:
+    driver: bridge
